@@ -1,0 +1,233 @@
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { SearchOutlined } from '@ant-design/icons';
+import { Col, Row, Button, Table, Input, Form } from 'antd';
+import { collection, getDocs, updateDoc, doc } from 'firebase/firestore';
+import { firebaseDb } from '../firabase'; // Adjust import based on your setup
+
+const EditableCell = ({
+  editing,
+  dataIndex,
+  title,
+  inputType,
+  record,
+  index,
+  children,
+  ...restProps
+}) => {
+  const inputNode = inputType === 'number' ? <InputNumber /> : <Input />;
+  return (
+    <td {...restProps}>
+      {editing ? (
+        <Form.Item
+          name={dataIndex}
+          style={{ margin: 0 }}
+          rules={[
+            {
+              required: true,
+              message: `Please Input ${title}!`,
+            },
+          ]}
+        >
+          {inputNode}
+        </Form.Item>
+      ) : (
+        children
+      )}
+    </td>
+  );
+};
+
+const Tables = () => {
+  const [weekData, setWeekData] = useState([]);
+  const [editingKey, setEditingKey] = useState('');
+  const navigate = useNavigate();
+
+  const isEditing = (record) => record.key === editingKey;
+
+  const edit = (record) => {
+    setEditingKey(record.key);
+  };
+
+  const cancel = () => {
+    setEditingKey('');
+  };
+
+  const save = async (key) => {
+    try {
+      const row = await form.validateFields();
+      const newData = [...weekData];
+      const index = newData.findIndex((item) => key === item.key);
+
+      if (index > -1) {
+        const item = newData[index];
+        const uid = window.sessionStorage.getItem('userId');
+        const weekKey = item.key;
+        const weekPath = `restaurants/${uid}/${weekKey}`;
+
+        await updateDoc(doc(firebaseDb, weekPath), {
+          invoice_number: row.invoice_number,
+        });
+
+        newData.splice(index, 1, { ...item, ...row });
+        setWeekData(newData);
+        setEditingKey('');
+      } else {
+        newData.push(row);
+        setWeekData(newData);
+        setEditingKey('');
+      }
+    } catch (errInfo) {
+      console.log('Validate Failed:', errInfo);
+    }
+  };
+
+  useEffect(() => {
+    const fetchCurrentWeekData = async () => {
+      try {
+        const uid = window.sessionStorage.getItem('userId');
+        const currentDate = new Date();
+        const year = currentDate.getFullYear();
+        const month = currentDate.getMonth() + 1; // getMonth is 0-based
+        const weekNumber = Math.ceil(currentDate.getDate() / 7);
+        const weekKey = `Week${weekNumber}`;
+        const weekPath = `restaurants/${uid}/${year}/${month}/${weekKey}`;
+        const weekRef = collection(firebaseDb, weekPath);
+        const querySnapshot = await getDocs(weekRef);
+        const fetchedData = querySnapshot.docs.map((doc) => ({
+          key: doc.id,
+          id: doc.id,
+          ...doc.data(),
+        }));
+        setWeekData(fetchedData);
+      } catch (error) {
+        console.error('Error fetching current week data:', error);
+      }
+    };
+
+    fetchCurrentWeekData();
+  }, []);
+
+  const columns = [
+    {
+      title: 'Date',
+      dataIndex: 'id',
+      key: 'date',
+      render: (id) => new Date(id.split('T')[0]).toLocaleDateString(),
+    },
+    {
+      title: 'Vendor Name',
+      dataIndex: 'name',
+      key: 'name',
+    },
+    {
+      title: 'Invoice Number',
+      dataIndex: 'invoice_number',
+      key: 'invoice_number',
+      editable: true,
+      render: (_, record) => {
+        const editable = isEditing(record);
+        return editable ? (
+          <Form.Item
+            name="invoice_number"
+            style={{ margin: 0 }}
+            rules={[
+              {
+                required: true,
+                message: 'Please input invoice number!',
+              },
+            ]}
+          >
+            <Input />
+          </Form.Item>
+        ) : (
+          record.invoice_number
+        );
+      },
+    },
+    {
+      title: 'Invoice Date',
+      dataIndex: 'invoice_date',
+      key: 'invoice_date',
+      render: (date) => new Date(date.seconds * 1000).toLocaleDateString(),
+    },
+    {
+      title: 'Delivery Date',
+      dataIndex: 'delivery_date',
+      key: 'delivery_date',
+      render: (date) => new Date(date.seconds * 1000).toLocaleDateString(),
+    },
+    {
+      title: 'Action',
+      dataIndex: 'action',
+      key: 'action',
+      render: (_, record) => {
+        const editable = isEditing(record);
+        return editable ? (
+          <span>
+            <Button type="link" onClick={() => save(record.key)} style={{ marginRight: 8 }}>
+              Save
+            </Button>
+            <Button type="link" onClick={cancel}>
+              Cancel
+            </Button>
+          </span>
+        ) : (
+          <Button type="link" disabled={editingKey !== ''} onClick={() => edit(record)}>
+            Edit
+          </Button>
+        );
+      },
+    },
+  ];
+
+  const components = {
+    body: {
+      cell: EditableCell,
+    },
+  };
+
+  const mergedColumns = columns.map((col) => ({
+    ...col,
+    onCell: (record) => ({
+      record,
+      inputType: col.dataIndex === 'invoice_number' ? 'text' : 'text',
+      dataIndex: col.dataIndex,
+      title: col.title,
+      editing: isEditing(record),
+    }),
+  }));
+
+  return (
+    <div>
+      <Row justify="center" style={{ height: '5rem' }}>
+        <Col span={24} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <h1>Welcome to Tables</h1>
+        </Col>
+      </Row>
+      <Row justify="end" style={{ marginBottom: '20px' }}>
+        <Col>
+          <Button type="primary" icon={<SearchOutlined />} onClick={() => navigate('/customtable')}>
+            Add New Receipt
+          </Button>
+        </Col>
+      </Row>
+      <Row justify="center">
+        <Col span={20}>
+          <Table
+            components={components}
+            bordered
+            dataSource={weekData}
+            columns={mergedColumns}
+            rowClassName="editable-row"
+            pagination={{
+              onChange: cancel,
+            }}
+          />
+        </Col>
+      </Row>
+    </div>
+  );
+};
+
+export default Tables;
